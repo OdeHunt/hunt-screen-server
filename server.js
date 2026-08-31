@@ -3,7 +3,6 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 const app = express();
-
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -20,23 +19,15 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-
-/*
- * Guarda quem está transmitindo
- * em cada sala.
- */
-
 const broadcasters = new Map();
 
 
 /* ================================
-   TESTE
+   TESTE DO SERVIDOR
 ================================ */
 
 app.get("/", (req, res) => {
-
-  res.send("HUNT SERVER ONLINE");
-
+  res.status(200).send("HUNT SERVER ONLINE");
 });
 
 
@@ -46,10 +37,7 @@ app.get("/", (req, res) => {
 
 io.on("connection", (socket) => {
 
-  console.log(
-    "Cliente conectado:",
-    socket.id
-  );
+  console.log("Cliente conectado:", socket.id);
 
 
   /* ================================
@@ -58,17 +46,23 @@ io.on("connection", (socket) => {
 
   socket.on("join-room", (roomId) => {
 
+    if (!roomId) {
+      console.log(
+        "HUNT: tentativa de entrar sem roomId"
+      );
+      return;
+    }
+
     console.log(
       `${socket.id} entrou na sala ${roomId}`
     );
-
 
     socket.join(roomId);
 
 
     /*
      * Verificar se já existe
-     * alguém transmitindo.
+     * um transmissor.
      */
 
     const broadcaster =
@@ -84,14 +78,14 @@ io.on("connection", (socket) => {
 
 
       /*
-       * Avisar o novo usuário
+       * Avisar o espectador
+       * que existe transmissão.
        */
 
       socket.emit(
         "stream-started",
         {
-          broadcasterId:
-            broadcaster
+          broadcasterId: broadcaster
         }
       );
 
@@ -101,12 +95,12 @@ io.on("connection", (socket) => {
        * que um novo espectador entrou.
        */
 
-      io.to(room.broadcaster).emit(
-  "user-joined",
-  {
-    socketId: socket.id
-  }
-);
+      io.to(broadcaster).emit(
+        "user-joined",
+        {
+          socketId: socket.id
+        }
+      );
 
     }
 
@@ -139,12 +133,11 @@ io.on("connection", (socket) => {
         );
 
         return;
-
       }
 
 
       /*
-       * Registrar transmissor
+       * Registrar transmissor.
        */
 
       broadcasters.set(
@@ -154,7 +147,7 @@ io.on("connection", (socket) => {
 
 
       /*
-       * Avisar os outros usuários
+       * Avisar os outros usuários.
        */
 
       socket
@@ -162,8 +155,7 @@ io.on("connection", (socket) => {
         .emit(
           "stream-started",
           {
-            broadcasterId:
-              socket.id
+            broadcasterId: socket.id
           }
         );
 
@@ -195,7 +187,6 @@ io.on("connection", (socket) => {
         );
 
         return;
-
       }
 
 
@@ -212,13 +203,8 @@ io.on("connection", (socket) => {
       ).emit(
         "webrtc-offer",
         {
-
-          sender:
-            socket.id,
-
-          offer:
-            data.offer
-
+          sender: socket.id,
+          offer: data.offer
         }
       );
 
@@ -245,7 +231,6 @@ io.on("connection", (socket) => {
         );
 
         return;
-
       }
 
 
@@ -262,13 +247,8 @@ io.on("connection", (socket) => {
       ).emit(
         "webrtc-answer",
         {
-
-          sender:
-            socket.id,
-
-          answer:
-            data.answer
-
+          sender: socket.id,
+          answer: data.answer
         }
       );
 
@@ -290,9 +270,20 @@ io.on("connection", (socket) => {
         !data.candidate
       ) {
 
-        return;
+        console.log(
+          "HUNT: ICE inválido"
+        );
 
+        return;
       }
+
+
+      console.log(
+        "HUNT: encaminhando ICE:",
+        socket.id,
+        "→",
+        data.target
+      );
 
 
       io.to(
@@ -300,13 +291,8 @@ io.on("connection", (socket) => {
       ).emit(
         "webrtc-ice-candidate",
         {
-
-          sender:
-            socket.id,
-
-          candidate:
-            data.candidate
-
+          sender: socket.id,
+          candidate: data.candidate
         }
       );
 
@@ -333,36 +319,37 @@ io.on("connection", (socket) => {
 
 
       /*
-       * Só apagar se esse socket
-       * for realmente o transmissor.
+       * Só o transmissor atual
+       * pode encerrar a transmissão.
        */
 
       if (
-        broadcasters.get(roomId) ===
+        broadcasters.get(roomId) !==
         socket.id
       ) {
 
-        broadcasters.delete(
-          roomId
-        );
-
-
-        socket
-          .to(roomId)
-          .emit(
-            "stream-stopped",
-            {
-              broadcasterId:
-                socket.id
-            }
-          );
-
-
-        console.log(
-          `HUNT: transmissão encerrada na sala ${roomId}`
-        );
-
+        return;
       }
+
+
+      broadcasters.delete(
+        roomId
+      );
+
+
+      socket
+        .to(roomId)
+        .emit(
+          "stream-stopped",
+          {
+            broadcasterId: socket.id
+          }
+        );
+
+
+      console.log(
+        `HUNT: transmissão encerrada na sala ${roomId}`
+      );
 
     }
   );
@@ -383,8 +370,8 @@ io.on("connection", (socket) => {
 
 
       /*
-       * Procurar se ele era
-       * algum transmissor.
+       * Verificar se o cliente
+       * era algum transmissor.
        */
 
       for (
@@ -410,8 +397,7 @@ io.on("connection", (socket) => {
             .emit(
               "stream-stopped",
               {
-                broadcasterId:
-                  socket.id
+                broadcasterId: socket.id
               }
             );
 
