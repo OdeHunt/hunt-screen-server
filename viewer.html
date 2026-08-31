@@ -1,0 +1,718 @@
+<!doctype html>
+
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>HUNT SCREEN</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      color: #fff;
+      font-family: Arial, Helvetica, sans-serif;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      height: 100%;
+      padding: 25px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo {
+      color: #ff8c00;
+      font-size: 42px;
+      font-weight: 900;
+      letter-spacing: 10px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 11px;
+      letter-spacing: 7px;
+      margin-bottom: 25px;
+    }
+
+    .screen {
+      width: min(1100px, 95%);
+      aspect-ratio: 16 / 9;
+      background: #080808;
+      border: 1px solid #222;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    .waiting {
+      text-align: center;
+      color: #555;
+    }
+
+    .waiting h1 {
+      color: #777;
+      font-size: 18px;
+      letter-spacing: 3px;
+      margin: 15px 0 8px;
+    }
+
+    .waiting p {
+      font-size: 12px;
+      color: #444;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      background: #ff8c00;
+      border-radius: 50%;
+      margin: auto;
+      box-shadow: 0 0 15px #ff8c00;
+    }
+
+    .status {
+      margin-top: 15px;
+      color: #555;
+      font-size: 11px;
+      letter-spacing: 2px;
+    }
+
+    .live {
+      color: #ff8c00;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .fullscreen {
+      position: absolute;
+      right: 15px;
+      bottom: 15px;
+      padding: 9px 13px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, .75);
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .fullscreen:hover {
+      border-color: #ff8c00;
+      color: #ff8c00;
+    }
+  </style>
+
+  <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
+
+</head>
+
+<body>
+
+  <main class="container">
+
+```
+<div class="logo">
+  HUNT
+</div>
+
+<div class="subtitle">
+  SCREEN
+</div>
+
+<section class="screen">
+
+  <div id="waiting" class="waiting">
+
+    <div class="dot"></div>
+
+    <h1>NENHUMA TRANSMISSÃO</h1>
+
+    <p>
+      A transmissão aparecerá aqui quando estiver disponível.
+    </p>
+
+  </div>
+
+  <video
+    id="remoteVideo"
+    autoplay
+    playsinline
+    controls
+    class="hidden">
+  </video>
+
+  <button
+    id="fullscreen"
+    class="fullscreen hidden">
+    ⛶
+  </button>
+
+</section>
+
+<div id="status" class="status">
+  CONECTANDO...
+</div>
+```
+
+  </main>
+
+  <script>
+
+    console.log("HUNT VIEWER: carregado");
+
+
+    /* =========================
+       CONFIGURAÇÃO
+    ========================= */
+
+    const SERVER_URL =
+      "https://nokia-differences-etc-cellular.trycloudflare.com";
+
+    const ROOM_ID =
+      "hunt-screen-main";
+
+
+    /* =========================
+       ELEMENTOS
+    ========================= */
+
+    const remoteVideo =
+      document.getElementById("remoteVideo");
+
+    const waiting =
+      document.getElementById("waiting");
+
+    const status =
+      document.getElementById("status");
+
+    const fullscreen =
+      document.getElementById("fullscreen");
+
+
+    /* =========================
+       WEBRTC
+    ========================= */
+
+    const rtcConfig = {
+
+      iceServers: [
+
+        {
+          urls:
+            "stun:stun.l.google.com:19302"
+        },
+
+        {
+          urls:
+            "stun:stun1.l.google.com:19302"
+        }
+
+      ]
+
+    };
+
+
+    let socket = null;
+
+    let broadcasterId = null;
+
+    let peer = null;
+
+
+    /* =========================
+       SOCKET
+    ========================= */
+
+    console.log(
+      "HUNT VIEWER: conectando..."
+    );
+
+
+    socket =
+      io(SERVER_URL);
+
+
+    socket.on("connect", () => {
+
+      console.log(
+        "HUNT VIEWER: conectado",
+        socket.id
+      );
+
+      status.textContent =
+        "● ONLINE";
+
+      socket.emit(
+        "join-room",
+        ROOM_ID
+      );
+
+    });
+
+
+    socket.on(
+      "connect_error",
+      error => {
+
+        console.error(
+          "HUNT VIEWER: erro:",
+          error
+        );
+
+        status.textContent =
+          "● ERRO DE CONEXÃO";
+
+      }
+    );
+
+
+    /* =========================
+       TRANSMISSÃO DISPONÍVEL
+    ========================= */
+
+    socket.on(
+      "stream-started",
+      data => {
+
+        console.log(
+          "HUNT VIEWER: transmissão encontrada",
+          data
+        );
+
+
+        if (
+          !data ||
+          !data.broadcasterId
+        ) {
+
+          return;
+
+        }
+
+
+        broadcasterId =
+          data.broadcasterId;
+
+
+        status.textContent =
+          "● TRANSMISSÃO DISPONÍVEL";
+
+        status.classList.add(
+          "live"
+        );
+
+
+        requestStream();
+
+      }
+    );
+
+
+    /* =========================
+       PEDIR TRANSMISSÃO
+    ========================= */
+
+    function requestStream() {
+
+      if (!broadcasterId) {
+
+        return;
+
+      }
+
+
+      console.log(
+        "HUNT VIEWER: solicitando transmissão"
+      );
+
+
+      socket.emit(
+        "viewer-joined",
+        {
+          roomId:
+            ROOM_ID,
+
+          broadcasterId:
+            broadcasterId,
+
+          viewerId:
+            socket.id
+        }
+      );
+
+    }
+
+
+    /* =========================
+       RECEBER OFFER
+    ========================= */
+
+    socket.on(
+      "webrtc-offer",
+      async data => {
+
+        console.log(
+          "HUNT VIEWER: OFFER recebida"
+        );
+
+
+        if (
+          !data ||
+          !data.sender ||
+          !data.offer
+        ) {
+
+          return;
+
+        }
+
+
+        broadcasterId =
+          data.sender;
+
+
+        createPeer();
+
+
+        await peer.setRemoteDescription(
+          data.offer
+        );
+
+
+        const answer =
+          await peer.createAnswer();
+
+
+        await peer.setLocalDescription(
+          answer
+        );
+
+
+        socket.emit(
+          "webrtc-answer",
+          {
+
+            target:
+              data.sender,
+
+            answer:
+              answer
+
+          }
+        );
+
+
+        console.log(
+          "HUNT VIEWER: ANSWER enviada"
+        );
+
+      }
+    );
+
+
+    /* =========================
+       CRIAR PEER
+    ========================= */
+
+    function createPeer() {
+
+      if (peer) {
+
+        peer.close();
+
+      }
+
+
+      peer =
+        new RTCPeerConnection(
+          rtcConfig
+        );
+
+
+      peer.ontrack =
+        event => {
+
+          console.log(
+            "HUNT VIEWER: VÍDEO RECEBIDO"
+          );
+
+
+          if (
+            event.streams &&
+            event.streams[0]
+          ) {
+
+            remoteVideo.srcObject =
+              event.streams[0];
+
+
+            waiting.classList.add(
+              "hidden"
+            );
+
+
+            remoteVideo.classList.remove(
+              "hidden"
+            );
+
+
+            fullscreen.classList.remove(
+              "hidden"
+            );
+
+
+            status.textContent =
+              "🔴 TRANSMITINDO";
+
+
+            status.classList.add(
+              "live"
+            );
+
+
+            remoteVideo.play()
+              .catch(
+                error => {
+
+                  console.warn(
+                    "Autoplay bloqueado:",
+                    error
+                  );
+
+                }
+              );
+
+          }
+
+        };
+
+
+      peer.onicecandidate =
+        event => {
+
+          if (
+            event.candidate &&
+            broadcasterId
+          ) {
+
+            socket.emit(
+              "webrtc-ice-candidate",
+              {
+
+                target:
+                  broadcasterId,
+
+                candidate:
+                  event.candidate
+
+              }
+            );
+
+          }
+
+        };
+
+
+      peer.onconnectionstatechange =
+        () => {
+
+          console.log(
+            "HUNT VIEWER: estado WebRTC:",
+            peer.connectionState
+          );
+
+
+          if (
+            peer.connectionState ===
+            "failed"
+          ) {
+
+            status.textContent =
+              "● CONEXÃO PERDIDA";
+
+          }
+
+        };
+
+    }
+
+
+    /* =========================
+       ICE
+    ========================= */
+
+    socket.on(
+      "webrtc-ice-candidate",
+      async data => {
+
+        if (
+          !data ||
+          !data.candidate
+        ) {
+
+          return;
+
+        }
+
+
+        if (!peer) {
+
+          return;
+
+        }
+
+
+        try {
+
+          await peer.addIceCandidate(
+            data.candidate
+          );
+
+        }
+
+        catch (error) {
+
+          console.error(
+            "HUNT VIEWER: erro ICE:",
+            error
+          );
+
+        }
+
+      }
+    );
+
+
+    /* =========================
+       TRANSMISSÃO PAROU
+    ========================= */
+
+    socket.on(
+      "stream-stopped",
+      () => {
+
+        console.log(
+          "HUNT VIEWER: transmissão parada"
+        );
+
+
+        broadcasterId =
+          null;
+
+
+        if (peer) {
+
+          peer.close();
+
+          peer =
+            null;
+
+        }
+
+
+        remoteVideo.srcObject =
+          null;
+
+
+        remoteVideo.classList.add(
+          "hidden"
+        );
+
+
+        fullscreen.classList.add(
+          "hidden"
+        );
+
+
+        waiting.classList.remove(
+          "hidden"
+        );
+
+
+        status.textContent =
+          "● ONLINE";
+
+
+        status.classList.remove(
+          "live"
+        );
+
+      }
+    );
+
+
+    /* =========================
+       TELA CHEIA
+    ========================= */
+
+    fullscreen.addEventListener(
+      "click",
+      async () => {
+
+        try {
+
+          if (
+            remoteVideo.requestFullscreen
+          ) {
+
+            await remoteVideo
+              .requestFullscreen();
+
+          }
+
+        }
+
+        catch (error) {
+
+          console.error(
+            "Erro fullscreen:",
+            error
+          );
+
+        }
+
+      }
+    );
+
+
+    console.log(
+      "HUNT VIEWER: sistema pronto"
+    );
+
+  </script>
+
+</body>
+
+</html>
