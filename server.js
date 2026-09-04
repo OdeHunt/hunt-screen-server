@@ -18,6 +18,69 @@ const ACCESS_TOKEN_DURATION =
   6 * 60 * 60 * 1000;
 
 /* ========================================
+   CORS
+======================================== */
+
+/*
+ * O cliente e o servidor estão em
+ * domínios diferentes no Render.
+ *
+ * Por isso precisamos liberar as
+ * requisições HTTP da aplicação cliente.
+ */
+
+const ALLOWED_ORIGINS = [
+  "https://hunt-screen-client.onrender.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173"
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  /*
+   * Permite as origens conhecidas.
+   *
+   * Se não houver Origin, como em uma
+   * abertura direta pelo navegador ou
+   * alguma requisição interna, seguimos
+   * normalmente.
+   */
+
+  if (
+    !origin ||
+    ALLOWED_ORIGINS.includes(origin)
+  ) {
+    if (origin) {
+      res.setHeader(
+        "Access-Control-Allow-Origin",
+        origin
+      );
+    }
+  }
+
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,OPTIONS"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type"
+  );
+
+  /*
+   * Responder preflight do navegador.
+   */
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
+/* ========================================
    SOCKET.IO
 ======================================== */
 
@@ -25,7 +88,7 @@ const io = new Server(server, {
   path: SOCKET_PATH,
 
   cors: {
-    origin: "*",
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST"]
   },
 
@@ -155,7 +218,9 @@ function hashPassword(password, salt) {
 
 function createPasswordHash(password) {
   const salt =
-    crypto.randomBytes(16).toString("hex");
+    crypto
+      .randomBytes(16)
+      .toString("hex");
 
   const hash =
     hashPassword(
@@ -225,8 +290,7 @@ function verifyPassword(password, room) {
 
 function createRoomAccessToken(
   roomId,
-  role = "viewer",
-  socketId = null
+  role = "viewer"
 ) {
   const token =
     generateAccessToken();
@@ -236,7 +300,7 @@ function createRoomAccessToken(
     {
       roomId,
       role,
-      socketId,
+      socketId: null,
       createdAt: Date.now()
     }
   );
@@ -308,6 +372,12 @@ function validateAccessToken(
      SOCKET
   ================================= */
 
+  /*
+   * Quando o token ainda não foi usado
+   * por nenhum socket, permitimos o primeiro
+   * socket e ele será associado logo depois.
+   */
+
   if (
     access.socketId &&
     socketId &&
@@ -335,6 +405,18 @@ function bindTokenToSocket(
     accessTokens.get(token);
 
   if (!access) {
+    return false;
+  }
+
+  /*
+   * Se já pertence a outro socket,
+   * não permitimos reutilização.
+   */
+
+  if (
+    access.socketId &&
+    access.socketId !== socketId
+  ) {
     return false;
   }
 
@@ -391,7 +473,7 @@ function removeSocketToken(socketId) {
 }
 
 /* ========================================
-   VERIFICAR SE SOCKET ESTÁ NA SALA
+   VERIFICAR SOCKET NA SALA
 ======================================== */
 
 function socketBelongsToRoom(
@@ -406,7 +488,7 @@ function socketBelongsToRoom(
 }
 
 /* ========================================
-   VERIFICAR AUTORIZAÇÃO DO SOCKET
+   VERIFICAR ACESSO DO SOCKET
 ======================================== */
 
 function socketHasRoomAccess(
@@ -433,33 +515,12 @@ function socketHasRoomAccess(
     return false;
   }
 
-  const token =
-    socket.huntAccessToken;
-
-  if (
-    !validateAccessToken(
-      token,
-      roomId,
-      role,
-      socket.id
-    )
-  ) {
-    /*
-     * Compatibilidade com a
-     * sala antiga.
-     */
-
-    if (
-      roomId ===
-      "hunt-screen-main"
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  return true;
+  return validateAccessToken(
+    socket.huntAccessToken,
+    roomId,
+    role,
+    socket.id
+  );
 }
 
 /* ========================================
@@ -469,18 +530,16 @@ function socketHasRoomAccess(
 app.get(
   "/api/rooms",
   (req, res) => {
-
     try {
-
       const result = [];
 
       for (
         const room
         of rooms.values()
       ) {
-
         result.push({
           id: room.id,
+
           name: room.name,
 
           live:
@@ -494,7 +553,6 @@ app.get(
           createdAt:
             room.createdAt
         });
-
       }
 
       /*
@@ -513,7 +571,6 @@ app.get(
       });
 
     } catch (error) {
-
       console.error(
         "HUNT: erro listando salas:",
         error
@@ -525,9 +582,7 @@ app.get(
           error:
             "Erro interno ao listar salas."
         });
-
     }
-
   }
 );
 
@@ -538,9 +593,7 @@ app.get(
 app.post(
   "/api/rooms",
   (req, res) => {
-
     try {
-
       const name =
         typeof req.body?.name ===
         "string"
@@ -558,25 +611,21 @@ app.post(
       ================================= */
 
       if (!name) {
-
         return res
           .status(400)
           .json({
             error:
               "Informe o nome da sala."
           });
-
       }
 
       if (name.length > 50) {
-
         return res
           .status(400)
           .json({
             error:
               "O nome da sala deve ter no máximo 50 caracteres."
           });
-
       }
 
       /* ================================
@@ -584,36 +633,30 @@ app.post(
       ================================= */
 
       if (!password) {
-
         return res
           .status(400)
           .json({
             error:
               "Informe uma senha."
           });
-
       }
 
       if (password.length < 4) {
-
         return res
           .status(400)
           .json({
             error:
               "A senha deve ter pelo menos 4 caracteres."
           });
-
       }
 
       if (password.length > 100) {
-
         return res
           .status(400)
           .json({
             error:
               "A senha é muito longa."
           });
-
       }
 
       /* ================================
@@ -629,12 +672,9 @@ app.post(
         );
 
       const room = {
+        id: roomId,
 
-        id:
-          roomId,
-
-        name:
-          name,
+        name,
 
         passwordHash:
           passwordData.hash,
@@ -642,15 +682,13 @@ app.post(
         passwordSalt:
           passwordData.salt,
 
-        broadcaster:
-          null,
+        broadcaster: null,
 
         viewers:
           new Set(),
 
         createdAt:
           Date.now()
-
       };
 
       rooms.set(
@@ -665,33 +703,23 @@ app.post(
       res
         .status(201)
         .json({
-
-          success:
-            true,
+          success: true,
 
           room: {
+            id: room.id,
 
-            id:
-              room.id,
+            name: room.name,
 
-            name:
-              room.name,
+            live: false,
 
-            live:
-              false,
-
-            viewers:
-              0,
+            viewers: 0,
 
             createdAt:
               room.createdAt
-
           }
-
         });
 
     } catch (error) {
-
       console.error(
         "HUNT: erro criando sala:",
         error
@@ -703,9 +731,7 @@ app.post(
           error:
             "Erro interno ao criar sala."
         });
-
     }
-
   }
 );
 
@@ -716,9 +742,7 @@ app.post(
 app.post(
   "/api/rooms/:roomId/join",
   (req, res) => {
-
     try {
-
       const roomId =
         req.params.roomId;
 
@@ -744,14 +768,12 @@ app.post(
         );
 
       if (!room) {
-
         return res
           .status(404)
           .json({
             error:
               "Sala não encontrada."
           });
-
       }
 
       /* ================================
@@ -764,14 +786,12 @@ app.post(
           room
         )
       ) {
-
         return res
           .status(401)
           .json({
             error:
               "Senha incorreta."
           });
-
       }
 
       /* ================================
@@ -783,14 +803,12 @@ app.post(
           "broadcaster" &&
         room.broadcaster
       ) {
-
         return res
           .status(409)
           .json({
             error:
               "Esta sala já possui um transmissor."
           });
-
       }
 
       /* ================================
@@ -808,19 +826,14 @@ app.post(
       );
 
       res.json({
-
-        success:
-          true,
+        success: true,
 
         accessToken,
 
         room: {
+          id: room.id,
 
-          id:
-            room.id,
-
-          name:
-            room.name,
+          name: room.name,
 
           live:
             Boolean(
@@ -829,13 +842,10 @@ app.post(
 
           viewers:
             room.viewers.size
-
         }
-
       });
 
     } catch (error) {
-
       console.error(
         "HUNT: erro entrando na sala:",
         error
@@ -847,9 +857,7 @@ app.post(
           error:
             "Erro interno ao entrar na sala."
         });
-
     }
-
   }
 );
 
@@ -860,7 +868,6 @@ app.post(
 io.on(
   "connection",
   (socket) => {
-
     console.log(
       "HUNT: cliente conectado:",
       socket.id
@@ -873,42 +880,22 @@ io.on(
     socket.on(
       "join-room",
       (data) => {
-
         try {
+          let roomId = null;
 
-          let roomId =
-            null;
+          let accessToken = null;
 
-          let accessToken =
-            null;
-
-          let role =
-            "viewer";
-
-          /* ================================
-             FORMATO ANTIGO
-          ================================= */
-
-          if (
-            typeof data ===
-            "string"
-          ) {
-
-            roomId =
-              data;
-
-          }
+          let role = "viewer";
 
           /* ================================
              FORMATO NOVO
           ================================= */
 
-          else if (
+          if (
             data &&
             typeof data ===
-            "object"
+              "object"
           ) {
-
             roomId =
               data.roomId ||
               null;
@@ -922,11 +909,32 @@ io.on(
               "broadcaster"
                 ? "broadcaster"
                 : "viewer";
+          }
 
+          /*
+           * O formato antigo por string
+           * não é mais aceito.
+           *
+           * O sistema agora utiliza
+           * salas protegidas por senha.
+           */
+
+          if (
+            typeof data ===
+            "string"
+          ) {
+            socket.emit(
+              "room-access-denied",
+              {
+                reason:
+                  "PASSWORD_REQUIRED"
+              }
+            );
+
+            return;
           }
 
           if (!roomId) {
-
             socket.emit(
               "room-access-denied",
               {
@@ -936,7 +944,6 @@ io.on(
             );
 
             return;
-
           }
 
           /* ================================
@@ -949,7 +956,6 @@ io.on(
             );
 
           if (!room) {
-
             socket.emit(
               "room-access-denied",
               {
@@ -959,7 +965,6 @@ io.on(
             );
 
             return;
-
           }
 
           /* ================================
@@ -974,19 +979,7 @@ io.on(
               socket.id
             );
 
-          const legacyRoom =
-            roomId ===
-            "hunt-screen-main";
-
-          if (
-            !validToken &&
-            !legacyRoom
-          ) {
-
-            console.log(
-              `HUNT: acesso negado: ${socket.id} -> ${roomId}`
-            );
-
+          if (!validToken) {
             socket.emit(
               "room-access-denied",
               {
@@ -996,7 +989,27 @@ io.on(
             );
 
             return;
+          }
 
+          /* ================================
+             VINCULAR TOKEN
+          ================================= */
+
+          if (
+            !bindTokenToSocket(
+              accessToken,
+              socket.id
+            )
+          ) {
+            socket.emit(
+              "room-access-denied",
+              {
+                reason:
+                  "TOKEN_ALREADY_IN_USE"
+              }
+            );
+
+            return;
           }
 
           /* ================================
@@ -1010,7 +1023,6 @@ io.on(
             room.broadcaster !==
               socket.id
           ) {
-
             socket.emit(
               "stream-already-started",
               {
@@ -1020,7 +1032,6 @@ io.on(
             );
 
             return;
-
           }
 
           /* ================================
@@ -1032,37 +1043,20 @@ io.on(
             socket.huntRoomId !==
               roomId
           ) {
-
             const oldRoom =
               rooms.get(
                 socket.huntRoomId
               );
 
             if (oldRoom) {
-
               oldRoom.viewers.delete(
                 socket.id
               );
-
             }
 
             socket.leave(
               socket.huntRoomId
             );
-
-          }
-
-          /* ================================
-             REGISTRAR TOKEN
-          ================================= */
-
-          if (accessToken) {
-
-            bindTokenToSocket(
-              accessToken,
-              socket.id
-            );
-
           }
 
           /* ================================
@@ -1077,8 +1071,7 @@ io.on(
             roomId;
 
           socket.huntAccessToken =
-            accessToken ||
-            null;
+            accessToken;
 
           socket.huntRole =
             role;
@@ -1091,11 +1084,9 @@ io.on(
             role ===
             "viewer"
           ) {
-
             room.viewers.add(
               socket.id
             );
-
           }
 
           /* ================================
@@ -1106,10 +1097,9 @@ io.on(
             role ===
             "broadcaster"
           ) {
-
             /*
-             * Ainda não significa que
-             * está transmitindo.
+             * Entrar na sala não começa
+             * a transmissão automaticamente.
              */
 
             if (
@@ -1117,7 +1107,6 @@ io.on(
               room.broadcaster !==
                 socket.id
             ) {
-
               socket.emit(
                 "stream-already-started",
                 {
@@ -1127,9 +1116,7 @@ io.on(
               );
 
               return;
-
             }
-
           }
 
           console.log(
@@ -1150,7 +1137,6 @@ io.on(
             broadcaster !==
               socket.id
           ) {
-
             socket.emit(
               "stream-started",
               {
@@ -1168,11 +1154,9 @@ io.on(
                   socket.id
               }
             );
-
           }
 
         } catch (error) {
-
           console.error(
             "HUNT: erro em join-room:",
             error
@@ -1185,9 +1169,7 @@ io.on(
                 "INTERNAL_ERROR"
             }
           );
-
         }
-
       }
     );
 
@@ -1198,9 +1180,7 @@ io.on(
     socket.on(
       "start-stream",
       (data) => {
-
         try {
-
           const roomId =
             data?.roomId ||
             socket.huntRoomId ||
@@ -1212,7 +1192,6 @@ io.on(
             null;
 
           if (!roomId) {
-
             socket.emit(
               "room-access-denied",
               {
@@ -1222,7 +1201,6 @@ io.on(
             );
 
             return;
-
           }
 
           const room =
@@ -1231,7 +1209,6 @@ io.on(
             );
 
           if (!room) {
-
             socket.emit(
               "room-access-denied",
               {
@@ -1241,7 +1218,6 @@ io.on(
             );
 
             return;
-
           }
 
           /* ================================
@@ -1249,10 +1225,11 @@ io.on(
           ================================= */
 
           if (
-            socket.huntRoomId !==
-            roomId
+            !socketBelongsToRoom(
+              socket,
+              roomId
+            )
           ) {
-
             socket.emit(
               "room-access-denied",
               {
@@ -1262,30 +1239,39 @@ io.on(
             );
 
             return;
+          }
 
+          /* ================================
+             PAPEL
+          ================================= */
+
+          if (
+            socket.huntRole !==
+            "broadcaster"
+          ) {
+            socket.emit(
+              "room-access-denied",
+              {
+                reason:
+                  "BROADCASTER_ONLY"
+              }
+            );
+
+            return;
           }
 
           /* ================================
              TOKEN
           ================================= */
 
-          const validToken =
-            validateAccessToken(
+          if (
+            !validateAccessToken(
               accessToken,
               roomId,
               "broadcaster",
               socket.id
-            );
-
-          const legacyRoom =
-            roomId ===
-            "hunt-screen-main";
-
-          if (
-            !validToken &&
-            !legacyRoom
+            )
           ) {
-
             socket.emit(
               "room-access-denied",
               {
@@ -1295,7 +1281,6 @@ io.on(
             );
 
             return;
-
           }
 
           /* ================================
@@ -1312,7 +1297,6 @@ io.on(
             existingBroadcaster !==
               socket.id
           ) {
-
             socket.emit(
               "stream-already-started",
               {
@@ -1322,7 +1306,6 @@ io.on(
             );
 
             return;
-
           }
 
           /* ================================
@@ -1336,14 +1319,6 @@ io.on(
 
           room.broadcaster =
             socket.id;
-
-          socket.huntRole =
-            "broadcaster";
-
-          socket.huntAccessToken =
-            accessToken ||
-            socket.huntAccessToken ||
-            null;
 
           console.log(
             `HUNT: ${socket.id} começou a transmitir em ${roomId}`
@@ -1364,8 +1339,7 @@ io.on(
             );
 
           /*
-           * Confirmação para o próprio
-           * transmissor.
+           * Confirmação para o transmissor.
            */
 
           socket.emit(
@@ -1373,20 +1347,17 @@ io.on(
             {
               broadcasterId:
                 socket.id,
-              local:
-                true
+
+              local: true
             }
           );
 
         } catch (error) {
-
           console.error(
             "HUNT: erro em start-stream:",
             error
           );
-
         }
-
       }
     );
 
@@ -1397,9 +1368,7 @@ io.on(
     socket.on(
       "webrtc-offer",
       (data) => {
-
         try {
-
           if (
             !data ||
             !data.target ||
@@ -1425,21 +1394,25 @@ io.on(
           }
 
           /*
-           * Apenas o transmissor pode
-           * enviar OFFER.
+           * Somente o transmissor
+           * pode enviar OFFER.
            */
 
           if (
             room.broadcaster !==
             socket.id
           ) {
-
-            console.log(
-              `HUNT: OFFER recusada de ${socket.id}`
-            );
-
             return;
+          }
 
+          if (
+            !socketHasRoomAccess(
+              socket,
+              roomId,
+              "broadcaster"
+            )
+          ) {
+            return;
           }
 
           const targetSocket =
@@ -1452,17 +1425,17 @@ io.on(
           }
 
           /*
-           * O alvo também precisa
-           * estar na mesma sala.
+           * O alvo precisa estar na
+           * mesma sala como viewer.
            */
 
           if (
             targetSocket.huntRoomId !==
-            roomId
+              roomId ||
+            targetSocket.huntRole !==
+              "viewer"
           ) {
-
             return;
-
           }
 
           console.log(
@@ -1483,14 +1456,11 @@ io.on(
           );
 
         } catch (error) {
-
           console.error(
             "HUNT: erro encaminhando OFFER:",
             error
           );
-
         }
-
       }
     );
 
@@ -1501,9 +1471,7 @@ io.on(
     socket.on(
       "webrtc-answer",
       (data) => {
-
         try {
-
           if (
             !data ||
             !data.target ||
@@ -1529,26 +1497,37 @@ io.on(
           }
 
           /*
-           * Apenas viewers podem responder
-           * ao transmissor.
+           * Apenas viewers podem
+           * responder.
            */
 
           if (
             socket.huntRole !==
             "viewer"
           ) {
-
             return;
-
           }
+
+          if (
+            !socketHasRoomAccess(
+              socket,
+              roomId,
+              "viewer"
+            )
+          ) {
+            return;
+          }
+
+          /*
+           * O destino precisa ser
+           * o transmissor da sala.
+           */
 
           if (
             room.broadcaster !==
             data.target
           ) {
-
             return;
-
           }
 
           const targetSocket =
@@ -1562,11 +1541,11 @@ io.on(
 
           if (
             targetSocket.huntRoomId !==
-            roomId
+              roomId ||
+            targetSocket.huntRole !==
+              "broadcaster"
           ) {
-
             return;
-
           }
 
           console.log(
@@ -1587,14 +1566,11 @@ io.on(
           );
 
         } catch (error) {
-
           console.error(
             "HUNT: erro encaminhando ANSWER:",
             error
           );
-
         }
-
       }
     );
 
@@ -1605,9 +1581,7 @@ io.on(
     socket.on(
       "webrtc-ice-candidate",
       (data) => {
-
         try {
-
           if (
             !data ||
             !data.target ||
@@ -1645,31 +1619,50 @@ io.on(
             targetSocket.huntRoomId !==
             roomId
           ) {
-
             return;
-
           }
 
           /*
-           * O ICE só pode circular
-           * entre transmissor e viewer.
+           * ICE somente entre
+           * transmissor e viewer.
            */
 
-          const validPair =
-            (
-              socket.id ===
-                room.broadcaster &&
-              targetSocket.huntRole ===
-                "viewer"
-            ) ||
-            (
-              socket.huntRole ===
-                "viewer" &&
-              targetSocket.id ===
-                room.broadcaster
-            );
+          const broadcasterSending =
+            socket.id ===
+              room.broadcaster &&
+            targetSocket.huntRole ===
+              "viewer";
 
-          if (!validPair) {
+          const viewerSending =
+            socket.huntRole ===
+              "viewer" &&
+            targetSocket.id ===
+              room.broadcaster;
+
+          if (
+            !broadcasterSending &&
+            !viewerSending
+          ) {
+            return;
+          }
+
+          /*
+           * Verificar acesso do emissor.
+           */
+
+          const senderRole =
+            socket.id ===
+            room.broadcaster
+              ? "broadcaster"
+              : "viewer";
+
+          if (
+            !socketHasRoomAccess(
+              socket,
+              roomId,
+              senderRole
+            )
+          ) {
             return;
           }
 
@@ -1687,14 +1680,11 @@ io.on(
           );
 
         } catch (error) {
-
           console.error(
             "HUNT: erro encaminhando ICE:",
             error
           );
-
         }
-
       }
     );
 
@@ -1705,7 +1695,6 @@ io.on(
     socket.on(
       "leave-room",
       (data) => {
-
         const roomId =
           data?.roomId ||
           socket.huntRoomId ||
@@ -1719,7 +1708,6 @@ io.on(
           socket,
           roomId
         );
-
       }
     );
 
@@ -1730,9 +1718,7 @@ io.on(
     socket.on(
       "stop-stream",
       (data) => {
-
         try {
-
           const roomId =
             data?.roomId ||
             socket.huntRoomId ||
@@ -1741,10 +1727,6 @@ io.on(
           if (!roomId) {
             return;
           }
-
-          /* ================================
-             VERIFICAR SALA
-          ================================= */
 
           const room =
             rooms.get(
@@ -1755,9 +1737,10 @@ io.on(
             return;
           }
 
-          /* ================================
-             VERIFICAR TRANSMISSOR
-          ================================= */
+          /*
+           * Somente o transmissor
+           * atual pode parar.
+           */
 
           if (
             broadcasters.get(
@@ -1765,9 +1748,17 @@ io.on(
             ) !==
             socket.id
           ) {
-
             return;
+          }
 
+          if (
+            !socketHasRoomAccess(
+              socket,
+              roomId,
+              "broadcaster"
+            )
+          ) {
+            return;
           }
 
           /* ================================
@@ -1805,14 +1796,11 @@ io.on(
           );
 
         } catch (error) {
-
           console.error(
             "HUNT: erro em stop-stream:",
             error
           );
-
         }
-
       }
     );
 
@@ -1823,9 +1811,7 @@ io.on(
     socket.on(
       "disconnect",
       () => {
-
         try {
-
           console.log(
             "HUNT: cliente desconectado:",
             socket.id
@@ -1844,12 +1830,10 @@ io.on(
             ]
             of broadcasters
           ) {
-
             if (
               broadcasterId ===
               socket.id
             ) {
-
               broadcasters.delete(
                 roomId
               );
@@ -1860,7 +1844,6 @@ io.on(
                 );
 
               if (room) {
-
                 room.broadcaster =
                   null;
 
@@ -1877,11 +1860,8 @@ io.on(
                 roomsToRemove.push(
                   roomId
                 );
-
               }
-
             }
-
           }
 
           /* ================================
@@ -1892,11 +1872,9 @@ io.on(
             const roomId
             of roomsToRemove
           ) {
-
             removeRoom(
               roomId
             );
-
           }
 
           /* ================================
@@ -1906,20 +1884,16 @@ io.on(
           if (
             socket.huntRoomId
           ) {
-
             const room =
               rooms.get(
                 socket.huntRoomId
               );
 
             if (room) {
-
               room.viewers.delete(
                 socket.id
               );
-
             }
-
           }
 
           /* ================================
@@ -1931,17 +1905,13 @@ io.on(
           );
 
         } catch (error) {
-
           console.error(
             "HUNT: erro durante disconnect:",
             error
           );
-
         }
-
       }
     );
-
   }
 );
 
@@ -1953,32 +1923,27 @@ function leaveRoom(
   socket,
   roomId
 ) {
-
   const room =
     rooms.get(
       roomId
     );
 
   if (!room) {
-
     socket.leave(
       roomId
     );
 
     return;
-
   }
 
-  /*
-   * Se for transmissor,
-   * parar a transmissão.
-   */
+  /* ======================================
+     TRANSMISSOR
+  ====================================== */
 
   if (
     room.broadcaster ===
     socket.id
   ) {
-
     broadcasters.delete(
       roomId
     );
@@ -2000,17 +1965,25 @@ function leaveRoom(
       roomId
     );
 
+    socket.huntRoomId =
+      null;
+
+    socket.huntRole =
+      null;
+
+    socket.huntAccessToken =
+      null;
+
     removeRoom(
       roomId
     );
 
     return;
-
   }
 
-  /*
-   * Viewer.
-   */
+  /* ======================================
+     VIEWER
+  ====================================== */
 
   room.viewers.delete(
     socket.id
@@ -2035,21 +2008,17 @@ function leaveRoom(
 
   /*
    * Se não houver transmissor e
-   * não houver viewers, a sala pode
-   * ser removida.
+   * não houver viewers, remover.
    */
 
   if (
     !room.broadcaster &&
     room.viewers.size === 0
   ) {
-
     removeRoom(
       roomId
     );
-
   }
-
 }
 
 /* ========================================
@@ -2059,7 +2028,6 @@ function leaveRoom(
 function removeRoom(
   roomId
 ) {
-
   const room =
     rooms.get(
       roomId
@@ -2077,9 +2045,7 @@ function removeRoom(
   if (
     room.broadcaster
   ) {
-
     return;
-
   }
 
   /*
@@ -2122,7 +2088,6 @@ function removeRoom(
   console.log(
     `HUNT: sala removida: ${roomId}`
   );
-
 }
 
 /* ========================================
@@ -2131,7 +2096,6 @@ function removeRoom(
 
 setInterval(
   () => {
-
     const now =
       Date.now();
 
@@ -2142,21 +2106,16 @@ setInterval(
       ]
       of accessTokens
     ) {
-
       if (
         now -
           access.createdAt >
         ACCESS_TOKEN_DURATION
       ) {
-
         accessTokens.delete(
           token
         );
-
       }
-
     }
-
   },
   60 * 1000
 );
@@ -2167,7 +2126,6 @@ setInterval(
 
 setInterval(
   () => {
-
     for (
       const [
         roomId,
@@ -2175,26 +2133,20 @@ setInterval(
       ]
       of rooms
     ) {
-
       /*
-       * Se não existe transmissor
-       * e ninguém está assistindo,
-       * a sala pode ser apagada.
+       * Sala criada mas que nunca
+       * recebeu transmissor ou viewer.
        */
 
       if (
         !room.broadcaster &&
         room.viewers.size === 0
       ) {
-
         removeRoom(
           roomId
         );
-
       }
-
     }
-
   },
   5 * 60 * 1000
 );
@@ -2207,7 +2159,6 @@ server.listen(
   PORT,
   "0.0.0.0",
   () => {
-
     console.log(
       `HUNT SERVER rodando na porta ${PORT}`
     );
@@ -2219,6 +2170,5 @@ server.listen(
     console.log(
       "HUNT: sistema de salas ativo."
     );
-
   }
 );
