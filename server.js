@@ -17,17 +17,25 @@ const SOCKET_PATH = "/hunt-socket";
 const ACCESS_TOKEN_DURATION =
   6 * 60 * 60 * 1000;
 
+/*
+ * Sala vazia por 10 minutos:
+ * remove automaticamente.
+ */
+
+const EMPTY_ROOM_TIMEOUT =
+  10 * 60 * 1000;
+
+/*
+ * Intervalo de verificação:
+ * 30 segundos.
+ */
+
+const ROOM_CLEANUP_INTERVAL =
+  30 * 1000;
+
 /* ========================================
    CORS
 ======================================== */
-
-/*
- * O cliente e o servidor estão em
- * domínios diferentes no Render.
- *
- * Por isso precisamos liberar as
- * requisições HTTP da aplicação cliente.
- */
 
 const ALLOWED_ORIGINS = [
   "https://hunt-screen-client.onrender.com",
@@ -37,15 +45,6 @@ const ALLOWED_ORIGINS = [
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-
-  /*
-   * Permite as origens conhecidas.
-   *
-   * Se não houver Origin, como em uma
-   * abertura direta pelo navegador ou
-   * alguma requisição interna, seguimos
-   * normalmente.
-   */
 
   if (
     !origin ||
@@ -68,10 +67,6 @@ app.use((req, res, next) => {
     "Access-Control-Allow-Headers",
     "Content-Type"
   );
-
-  /*
-   * Responder preflight do navegador.
-   */
 
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
@@ -109,16 +104,19 @@ app.use(express.json());
 ======================================== */
 
 /*
- * rooms:
- *
  * roomId -> {
+ *
  *   id,
  *   name,
  *   passwordHash,
  *   passwordSalt,
+ *
  *   broadcaster,
- *   viewers: Set,
- *   createdAt
+ *   viewers,
+ *
+ *   createdAt,
+ *
+ *   emptySince
  * }
  */
 
@@ -140,10 +138,12 @@ const broadcasters = new Map();
 
 /*
  * token -> {
+ *
  *   roomId,
  *   socketId,
  *   role,
  *   createdAt
+ *
  * }
  */
 
@@ -166,8 +166,11 @@ app.get("/", (req, res) => {
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
+
     status: "online",
+
     rooms: rooms.size,
+
     timestamp: Date.now()
   });
 });
@@ -180,10 +183,14 @@ function generateRoomId() {
   let roomId;
 
   do {
-    roomId = crypto
-      .randomBytes(6)
-      .toString("hex");
-  } while (rooms.has(roomId));
+    roomId =
+      crypto
+        .randomBytes(6)
+        .toString("hex");
+
+  } while (
+    rooms.has(roomId)
+  );
 
   return roomId;
 }
@@ -202,7 +209,10 @@ function generateAccessToken() {
    HASH DA SENHA
 ======================================== */
 
-function hashPassword(password, salt) {
+function hashPassword(
+  password,
+  salt
+) {
   return crypto
     .scryptSync(
       password,
@@ -216,7 +226,9 @@ function hashPassword(password, salt) {
    CRIAR HASH DA SENHA
 ======================================== */
 
-function createPasswordHash(password) {
+function createPasswordHash(
+  password
+) {
   const salt =
     crypto
       .randomBytes(16)
@@ -238,7 +250,10 @@ function createPasswordHash(password) {
    VERIFICAR SENHA
 ======================================== */
 
-function verifyPassword(password, room) {
+function verifyPassword(
+  password,
+  room
+) {
   if (
     typeof password !== "string" ||
     !room ||
@@ -299,9 +314,13 @@ function createRoomAccessToken(
     token,
     {
       roomId,
+
       role,
+
       socketId: null,
-      createdAt: Date.now()
+
+      createdAt:
+        Date.now()
     }
   );
 
@@ -326,7 +345,9 @@ function validateAccessToken(
   }
 
   const access =
-    accessTokens.get(token);
+    accessTokens.get(
+      token
+    );
 
   if (!access) {
     return false;
@@ -341,7 +362,9 @@ function validateAccessToken(
       access.createdAt >
     ACCESS_TOKEN_DURATION
   ) {
-    accessTokens.delete(token);
+    accessTokens.delete(
+      token
+    );
 
     return false;
   }
@@ -363,7 +386,8 @@ function validateAccessToken(
 
   if (
     role &&
-    access.role !== role
+    access.role !==
+      role
   ) {
     return false;
   }
@@ -372,16 +396,11 @@ function validateAccessToken(
      SOCKET
   ================================= */
 
-  /*
-   * Quando o token ainda não foi usado
-   * por nenhum socket, permitimos o primeiro
-   * socket e ele será associado logo depois.
-   */
-
   if (
     access.socketId &&
     socketId &&
-    access.socketId !== socketId
+    access.socketId !==
+      socketId
   ) {
     return false;
   }
@@ -402,20 +421,18 @@ function bindTokenToSocket(
   }
 
   const access =
-    accessTokens.get(token);
+    accessTokens.get(
+      token
+    );
 
   if (!access) {
     return false;
   }
 
-  /*
-   * Se já pertence a outro socket,
-   * não permitimos reutilização.
-   */
-
   if (
     access.socketId &&
-    access.socketId !== socketId
+    access.socketId !==
+      socketId
   ) {
     return false;
   }
@@ -430,7 +447,9 @@ function bindTokenToSocket(
    REMOVER TOKENS DA SALA
 ======================================== */
 
-function removeRoomTokens(roomId) {
+function removeRoomTokens(
+  roomId
+) {
   for (
     const [
       token,
@@ -453,7 +472,9 @@ function removeRoomTokens(roomId) {
    REMOVER TOKEN DE SOCKET
 ======================================== */
 
-function removeSocketToken(socketId) {
+function removeSocketToken(
+  socketId
+) {
   for (
     const [
       token,
@@ -510,7 +531,7 @@ function socketHasRoomAccess(
   if (
     role &&
     socket.huntRole !==
-    role
+      role
   ) {
     return false;
   }
@@ -521,6 +542,101 @@ function socketHasRoomAccess(
     role,
     socket.id
   );
+}
+
+/* ========================================
+   MARCAR SALA COMO VAZIA
+======================================== */
+
+function markRoomAsEmpty(
+  room
+) {
+  if (!room) {
+    return;
+  }
+
+  /*
+   * Se já estiver contando,
+   * não reinicia o contador.
+   */
+
+  if (
+    room.emptySince ===
+    null
+  ) {
+    room.emptySince =
+      Date.now();
+
+    console.log(
+      `HUNT: sala ${room.id} ficou vazia. Contagem de 10 minutos iniciada.`
+    );
+  }
+}
+
+/* ========================================
+   MARCAR SALA COMO ATIVA
+======================================== */
+
+function markRoomAsActive(
+  room
+) {
+  if (!room) {
+    return;
+  }
+
+  if (
+    room.emptySince !==
+    null
+  ) {
+    console.log(
+      `HUNT: atividade detectada na sala ${room.id}. Contagem de fechamento cancelada.`
+    );
+  }
+
+  room.emptySince =
+    null;
+}
+
+/* ========================================
+   VERIFICAR SE SALA ESTÁ VAZIA
+======================================== */
+
+function isRoomEmpty(
+  room
+) {
+  if (!room) {
+    return true;
+  }
+
+  return (
+    !room.broadcaster &&
+    room.viewers.size ===
+      0
+  );
+}
+
+/* ========================================
+   ATUALIZAR ESTADO DA SALA
+======================================== */
+
+function updateRoomActivity(
+  room
+) {
+  if (!room) {
+    return;
+  }
+
+  if (
+    isRoomEmpty(room)
+  ) {
+    markRoomAsEmpty(
+      room
+    );
+  } else {
+    markRoomAsActive(
+      room
+    );
+  }
 }
 
 /* ========================================
@@ -537,6 +653,15 @@ app.get(
         const room
         of rooms.values()
       ) {
+        /*
+         * IMPORTANTE:
+         *
+         * Não enviamos viewers.
+         *
+         * O cliente não recebe
+         * a quantidade de espectadores.
+         */
+
         result.push({
           id: room.id,
 
@@ -546,9 +671,6 @@ app.get(
             Boolean(
               room.broadcaster
             ),
-
-          viewers:
-            room.viewers.size,
 
           createdAt:
             room.createdAt
@@ -567,6 +689,7 @@ app.get(
 
       res.json({
         success: true,
+
         rooms: result
       });
 
@@ -619,7 +742,10 @@ app.post(
           });
       }
 
-      if (name.length > 50) {
+      if (
+        name.length >
+        50
+      ) {
         return res
           .status(400)
           .json({
@@ -641,7 +767,10 @@ app.post(
           });
       }
 
-      if (password.length < 4) {
+      if (
+        password.length <
+        4
+      ) {
         return res
           .status(400)
           .json({
@@ -650,7 +779,10 @@ app.post(
           });
       }
 
-      if (password.length > 100) {
+      if (
+        password.length >
+        100
+      ) {
         return res
           .status(400)
           .json({
@@ -682,12 +814,23 @@ app.post(
         passwordSalt:
           passwordData.salt,
 
-        broadcaster: null,
+        broadcaster:
+          null,
 
         viewers:
           new Set(),
 
         createdAt:
+          Date.now(),
+
+        /*
+         * A sala começa vazia.
+         *
+         * Portanto os 10 minutos
+         * começam a contar agora.
+         */
+
+        emptySince:
           Date.now()
       };
 
@@ -711,8 +854,6 @@ app.post(
             name: room.name,
 
             live: false,
-
-            viewers: 0,
 
             createdAt:
               room.createdAt
@@ -838,10 +979,7 @@ app.post(
           live:
             Boolean(
               room.broadcaster
-            ),
-
-          viewers:
-            room.viewers.size
+            )
         }
       });
 
@@ -881,11 +1019,14 @@ io.on(
       "join-room",
       (data) => {
         try {
-          let roomId = null;
+          let roomId =
+            null;
 
-          let accessToken = null;
+          let accessToken =
+            null;
 
-          let role = "viewer";
+          let role =
+            "viewer";
 
           /* ================================
              FORMATO NOVO
@@ -911,13 +1052,9 @@ io.on(
                 : "viewer";
           }
 
-          /*
-           * O formato antigo por string
-           * não é mais aceito.
-           *
-           * O sistema agora utiliza
-           * salas protegidas por senha.
-           */
+          /* ================================
+             FORMATO ANTIGO
+          ================================= */
 
           if (
             typeof data ===
@@ -933,6 +1070,10 @@ io.on(
 
             return;
           }
+
+          /* ================================
+             ROOM ID
+          ================================= */
 
           if (!roomId) {
             socket.emit(
@@ -1052,6 +1193,10 @@ io.on(
               oldRoom.viewers.delete(
                 socket.id
               );
+
+              updateRoomActivity(
+                oldRoom
+              );
             }
 
             socket.leave(
@@ -1097,11 +1242,6 @@ io.on(
             role ===
             "broadcaster"
           ) {
-            /*
-             * Entrar na sala não começa
-             * a transmissão automaticamente.
-             */
-
             if (
               room.broadcaster &&
               room.broadcaster !==
@@ -1118,6 +1258,17 @@ io.on(
               return;
             }
           }
+
+          /*
+           * A sala agora possui alguém.
+           *
+           * Cancela o contador de
+           * sala vazia.
+           */
+
+          markRoomAsActive(
+            room
+          );
 
           console.log(
             `HUNT: ${socket.id} entrou em ${roomId} como ${role}`
@@ -1320,6 +1471,16 @@ io.on(
           room.broadcaster =
             socket.id;
 
+          /*
+           * Existe alguém na sala,
+           * então não pode haver
+           * contador de sala vazia.
+           */
+
+          markRoomAsActive(
+            room
+          );
+
           console.log(
             `HUNT: ${socket.id} começou a transmitir em ${roomId}`
           );
@@ -1338,9 +1499,9 @@ io.on(
               }
             );
 
-          /*
-           * Confirmação para o transmissor.
-           */
+          /* ================================
+             CONFIRMAÇÃO
+          ================================= */
 
           socket.emit(
             "stream-started",
@@ -1425,8 +1586,8 @@ io.on(
           }
 
           /*
-           * O alvo precisa estar na
-           * mesma sala como viewer.
+           * O alvo precisa estar
+           * na mesma sala.
            */
 
           if (
@@ -1519,8 +1680,8 @@ io.on(
           }
 
           /*
-           * O destino precisa ser
-           * o transmissor da sala.
+           * Destino precisa ser
+           * o transmissor.
            */
 
           if (
@@ -1647,7 +1808,7 @@ io.on(
           }
 
           /*
-           * Verificar acesso do emissor.
+           * Verificar acesso.
            */
 
           const senderRole =
@@ -1787,12 +1948,20 @@ io.on(
             );
 
           /*
-           * A sala é encerrada junto
-           * com o transmissor.
+           * IMPORTANTE:
+           *
+           * Não removemos a sala
+           * imediatamente.
+           *
+           * Se ainda houver espectadores,
+           * a sala continua existindo.
+           *
+           * Se não houver ninguém,
+           * inicia a contagem de 10 minutos.
            */
 
-          removeRoom(
-            roomId
+          updateRoomActivity(
+            room
           );
 
         } catch (error) {
@@ -1821,7 +1990,8 @@ io.on(
              TRANSMISSOR
           ================================= */
 
-          const roomsToRemove = [];
+          const affectedRooms =
+            [];
 
           for (
             const [
@@ -1857,23 +2027,24 @@ io.on(
                     }
                   );
 
-                roomsToRemove.push(
-                  roomId
+                affectedRooms.push(
+                  room
                 );
               }
             }
           }
 
-          /* ================================
-             REMOVER SALAS
-          ================================= */
+          /*
+           * Atualizar estado das
+           * salas afetadas.
+           */
 
           for (
-            const roomId
-            of roomsToRemove
+            const room
+            of affectedRooms
           ) {
-            removeRoom(
-              roomId
+            updateRoomActivity(
+              room
             );
           }
 
@@ -1892,6 +2063,10 @@ io.on(
             if (room) {
               room.viewers.delete(
                 socket.id
+              );
+
+              updateRoomActivity(
+                room
               );
             }
           }
@@ -1974,8 +2149,16 @@ function leaveRoom(
     socket.huntAccessToken =
       null;
 
-    removeRoom(
-      roomId
+    /*
+     * A sala não é mais removida
+     * imediatamente.
+     *
+     * Se ficar vazia, inicia os
+     * 10 minutos.
+     */
+
+    updateRoomActivity(
+      room
     );
 
     return;
@@ -2007,18 +2190,13 @@ function leaveRoom(
   );
 
   /*
-   * Se não houver transmissor e
-   * não houver viewers, remover.
+   * Se ficou completamente vazia,
+   * começa a contagem de 10 minutos.
    */
 
-  if (
-    !room.broadcaster &&
-    room.viewers.size === 0
-  ) {
-    removeRoom(
-      roomId
-    );
-  }
+  updateRoomActivity(
+    room
+  );
 }
 
 /* ========================================
@@ -2038,8 +2216,8 @@ function removeRoom(
   }
 
   /*
-   * Nunca remover uma sala que
-   * ainda possui transmissor.
+   * Nunca remover uma sala
+   * que ainda possui transmissor.
    */
 
   if (
@@ -2049,8 +2227,20 @@ function removeRoom(
   }
 
   /*
-   * Avisar clientes.
+   * Só remover se realmente
+   * estiver vazia.
    */
+
+  if (
+    room.viewers.size >
+    0
+  ) {
+    return;
+  }
+
+  /* ================================
+     AVISAR CLIENTES
+  ================================= */
 
   io.to(
     roomId
@@ -2061,25 +2251,25 @@ function removeRoom(
     }
   );
 
-  /*
-   * Remover tokens.
-   */
+  /* ================================
+     REMOVER TOKENS
+  ================================= */
 
   removeRoomTokens(
     roomId
   );
 
-  /*
-   * Remover broadcaster map.
-   */
+  /* ================================
+     REMOVER BROADCASTER MAP
+  ================================= */
 
   broadcasters.delete(
     roomId
   );
 
-  /*
-   * Remover sala.
-   */
+  /* ================================
+     REMOVER SALA
+  ================================= */
 
   rooms.delete(
     roomId
@@ -2126,6 +2316,9 @@ setInterval(
 
 setInterval(
   () => {
+    const now =
+      Date.now();
+
     for (
       const [
         roomId,
@@ -2134,21 +2327,69 @@ setInterval(
       of rooms
     ) {
       /*
-       * Sala criada mas que nunca
-       * recebeu transmissor ou viewer.
+       * Se alguém estiver na sala,
+       * não fazemos nada.
        */
 
       if (
-        !room.broadcaster &&
-        room.viewers.size === 0
+        !isRoomEmpty(room)
       ) {
+        /*
+         * Segurança extra:
+         * sala ativa não possui
+         * contador de fechamento.
+         */
+
+        room.emptySince =
+          null;
+
+        continue;
+      }
+
+      /*
+       * Se por algum motivo
+       * emptySince não existir,
+       * iniciamos agora.
+       */
+
+      if (
+        room.emptySince ===
+        null
+      ) {
+        room.emptySince =
+          now;
+
+        console.log(
+          `HUNT: sala ${roomId} está vazia. Contagem de 10 minutos iniciada.`
+        );
+
+        continue;
+      }
+
+      /*
+       * Verificar se já passaram
+       * 10 minutos.
+       */
+
+      const emptyTime =
+        now -
+        room.emptySince;
+
+      if (
+        emptyTime >=
+        EMPTY_ROOM_TIMEOUT
+      ) {
+        console.log(
+          `HUNT: sala ${roomId} ficou vazia por 10 minutos. Removendo.`
+        );
+
         removeRoom(
           roomId
         );
       }
     }
   },
-  5 * 60 * 1000
+  ROOM_CLEANUP_INTERVAL
 );
 
 /* ========================================
@@ -2169,6 +2410,14 @@ server.listen(
 
     console.log(
       "HUNT: sistema de salas ativo."
+    );
+
+    console.log(
+      "HUNT: salas vazias expiram após 10 minutos."
+    );
+
+    console.log(
+      "HUNT: contador de espectadores oculto da API."
     );
   }
 );
