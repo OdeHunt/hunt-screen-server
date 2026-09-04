@@ -34,6 +34,29 @@ const ROOM_CLEANUP_INTERVAL =
   30 * 1000;
 
 /* ========================================
+   SENHA MESTRE
+======================================== */
+
+/*
+ * A senha mestre NÃO fica exposta
+ * no frontend.
+ *
+ * No Render, configure:
+ *
+ * HUNT_MASTER_PASSWORD
+ *
+ * com o valor:
+ *
+ * HUNT-MASTER_9fK7@vQ2#Lm8!Zx4$Np6^Rt3
+ *
+ * Caso a variável não exista,
+ * a senha mestre fica desativada.
+ */
+
+const MASTER_PASSWORD =
+  process.env.HUNT_MASTER_PASSWORD || "";
+
+/* ========================================
    CORS
 ======================================== */
 
@@ -247,7 +270,7 @@ function createPasswordHash(
 }
 
 /* ========================================
-   VERIFICAR SENHA
+   VERIFICAR SENHA DA SALA
 ======================================== */
 
 function verifyPassword(
@@ -297,6 +320,94 @@ function verifyPassword(
   } catch {
     return false;
   }
+}
+
+/* ========================================
+   VERIFICAR SENHA MESTRE
+======================================== */
+
+function verifyMasterPassword(
+  password
+) {
+  /*
+   * Se a variável não estiver
+   * configurada no Render,
+   * a senha mestre fica desativada.
+   */
+
+  if (
+    !MASTER_PASSWORD ||
+    typeof password !== "string"
+  ) {
+    return false;
+  }
+
+  /*
+   * Comparação segura.
+   */
+
+  const received =
+    Buffer.from(
+      password,
+      "utf8"
+    );
+
+  const stored =
+    Buffer.from(
+      MASTER_PASSWORD,
+      "utf8"
+    );
+
+  if (
+    received.length !==
+    stored.length
+  ) {
+    return false;
+  }
+
+  try {
+    return crypto.timingSafeEqual(
+      received,
+      stored
+    );
+  } catch {
+    return false;
+  }
+}
+
+/* ========================================
+   VERIFICAR QUALQUER SENHA
+======================================== */
+
+function verifyRoomPassword(
+  password,
+  room
+) {
+  /*
+   * Primeiro verifica a senha mestre.
+   *
+   * Se estiver correta, ela libera
+   * qualquer sala.
+   */
+
+  if (
+    verifyMasterPassword(
+      password
+    )
+  ) {
+    return true;
+  }
+
+  /*
+   * Caso contrário,
+   * verifica a senha específica
+   * da sala.
+   */
+
+  return verifyPassword(
+    password,
+    room
+  );
 }
 
 /* ========================================
@@ -654,12 +765,12 @@ app.get(
         of rooms.values()
       ) {
         /*
-         * IMPORTANTE:
+         * Não enviamos:
          *
-         * Não enviamos viewers.
-         *
-         * O cliente não recebe
-         * a quantidade de espectadores.
+         * - senha
+         * - hash
+         * - salt
+         * - quantidade de viewers
          */
 
         result.push({
@@ -825,9 +936,6 @@ app.post(
 
         /*
          * A sala começa vazia.
-         *
-         * Portanto os 10 minutos
-         * começam a contar agora.
          */
 
         emptySince:
@@ -921,8 +1029,15 @@ app.post(
          SENHA
       ================================= */
 
+      /*
+       * Aqui entram:
+       *
+       * 1. senha normal da sala
+       * 2. OU senha mestre global
+       */
+
       if (
-        !verifyPassword(
+        !verifyRoomPassword(
           password,
           room
         )
@@ -1261,9 +1376,6 @@ io.on(
 
           /*
            * A sala agora possui alguém.
-           *
-           * Cancela o contador de
-           * sala vazia.
            */
 
           markRoomAsActive(
@@ -1291,6 +1403,8 @@ io.on(
             socket.emit(
               "stream-started",
               {
+                roomId,
+
                 broadcasterId:
                   broadcaster
               }
@@ -1301,6 +1415,8 @@ io.on(
             ).emit(
               "user-joined",
               {
+                roomId,
+
                 socketId:
                   socket.id
               }
@@ -1451,6 +1567,8 @@ io.on(
             socket.emit(
               "stream-already-started",
               {
+                roomId,
+
                 broadcasterId:
                   existingBroadcaster
               }
@@ -1472,9 +1590,7 @@ io.on(
             socket.id;
 
           /*
-           * Existe alguém na sala,
-           * então não pode haver
-           * contador de sala vazia.
+           * Existe alguém na sala.
            */
 
           markRoomAsActive(
@@ -1494,6 +1610,8 @@ io.on(
             .emit(
               "stream-started",
               {
+                roomId,
+
                 broadcasterId:
                   socket.id
               }
@@ -1506,12 +1624,41 @@ io.on(
           socket.emit(
             "stream-started",
             {
+              roomId,
+
               broadcasterId:
                 socket.id,
 
               local: true
             }
           );
+
+          /* ================================
+             AVISAR VIEWERS QUE JÁ ESTAVAM
+             NA SALA ANTES DA TRANSMISSÃO
+          ================================= */
+
+          for (
+            const viewerId
+            of room.viewers
+          ) {
+            if (
+              viewerId !==
+              socket.id
+            ) {
+              io.to(
+                socket.id
+              ).emit(
+                "user-joined",
+                {
+                  roomId,
+
+                  socketId:
+                    viewerId
+                }
+              );
+            }
+          }
 
         } catch (error) {
           console.error(
@@ -1942,22 +2089,16 @@ io.on(
             .emit(
               "stream-stopped",
               {
+                roomId,
+
                 broadcasterId:
                   socket.id
               }
             );
 
           /*
-           * IMPORTANTE:
-           *
-           * Não removemos a sala
-           * imediatamente.
-           *
-           * Se ainda houver espectadores,
-           * a sala continua existindo.
-           *
-           * Se não houver ninguém,
-           * inicia a contagem de 10 minutos.
+           * A sala continua existindo
+           * enquanto houver espectadores.
            */
 
           updateRoomActivity(
@@ -2022,6 +2163,8 @@ io.on(
                   .emit(
                     "stream-stopped",
                     {
+                      roomId,
+
                       broadcasterId:
                         socket.id
                     }
@@ -2034,10 +2177,9 @@ io.on(
             }
           }
 
-          /*
-           * Atualizar estado das
-           * salas afetadas.
-           */
+          /* ================================
+             ATUALIZAR SALAS
+          ================================= */
 
           for (
             const room
@@ -2131,6 +2273,8 @@ function leaveRoom(
       .emit(
         "stream-stopped",
         {
+          roomId,
+
           broadcasterId:
             socket.id
         }
@@ -2150,11 +2294,8 @@ function leaveRoom(
       null;
 
     /*
-     * A sala não é mais removida
-     * imediatamente.
-     *
-     * Se ficar vazia, inicia os
-     * 10 minutos.
+     * Se ficar vazia,
+     * começa a contagem.
      */
 
     updateRoomActivity(
@@ -2191,7 +2332,7 @@ function leaveRoom(
 
   /*
    * Se ficou completamente vazia,
-   * começa a contagem de 10 minutos.
+   * começa a contagem.
    */
 
   updateRoomActivity(
@@ -2334,12 +2475,6 @@ setInterval(
       if (
         !isRoomEmpty(room)
       ) {
-        /*
-         * Segurança extra:
-         * sala ativa não possui
-         * contador de fechamento.
-         */
-
         room.emptySince =
           null;
 
@@ -2418,6 +2553,12 @@ server.listen(
 
     console.log(
       "HUNT: contador de espectadores oculto da API."
+    );
+
+    console.log(
+      MASTER_PASSWORD
+        ? "HUNT: senha mestre global ATIVADA."
+        : "HUNT: senha mestre global DESATIVADA."
     );
   }
 );
