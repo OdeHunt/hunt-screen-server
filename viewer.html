@@ -132,6 +132,62 @@
       border-color: #ff8c00;
       color: #ff8c00;
     }
+
+    .screen:fullscreen {
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      aspect-ratio: auto;
+      border: none;
+      border-radius: 0;
+      background: #000;
+    }
+
+    .screen:fullscreen video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .exit-fullscreen {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%) translateY(14px);
+      width: 38px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid #333;
+      border-radius: 5px;
+      background: rgba(0, 0, 0, .88);
+      color: #fff;
+      font-size: 13px;
+      line-height: 26px;
+      text-align: center;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      z-index: 2147483647;
+      transition: opacity .15s ease, transform .15s ease,
+                  border-color .15s ease, color .15s ease;
+    }
+
+    .screen:fullscreen .exit-fullscreen {
+      display: block;
+    }
+
+    .exit-fullscreen.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .exit-fullscreen:hover {
+      border-color: #ff8c00;
+      color: #ff8c00;
+    }
   </style>
 
   <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
@@ -142,7 +198,6 @@
 
   <main class="container">
 
-```
 <div class="logo">
   HUNT
 </div>
@@ -169,14 +224,23 @@
     id="remoteVideo"
     autoplay
     playsinline
-    controls
+
     class="hidden">
   </video>
 
   <button
     id="fullscreen"
-    class="fullscreen hidden">
+    class="fullscreen hidden"
+    type="button">
     ⛶
+  </button>
+
+  <button
+    id="exitFullscreen"
+    class="exit-fullscreen"
+    type="button"
+    aria-label="Sair da tela cheia">
+    ✕
   </button>
 
 </section>
@@ -184,7 +248,6 @@
 <div id="status" class="status">
   CONECTANDO...
 </div>
-```
 
   </main>
 
@@ -677,35 +740,136 @@
        TELA CHEIA
     ========================= */
 
+    const screen =
+      document.querySelector(".screen");
+
+    const exitFullscreen =
+      document.getElementById("exitFullscreen");
+
+    let exitButtonTimer = null;
+
+    function hideExitButton() {
+      clearTimeout(exitButtonTimer);
+      exitFullscreen.classList.remove("show");
+    }
+
+    function showExitButtonTemporarily() {
+      if (document.fullscreenElement !== screen) {
+        hideExitButton();
+        return;
+      }
+
+      exitFullscreen.classList.add("show");
+
+      clearTimeout(exitButtonTimer);
+
+      exitButtonTimer = setTimeout(() => {
+        exitFullscreen.classList.remove("show");
+      }, 2200);
+    }
+
     fullscreen.addEventListener(
       "click",
-      async () => {
+      async event => {
+        event.stopPropagation();
 
         try {
-
-          if (
-            remoteVideo.requestFullscreen
-          ) {
-
-            await remoteVideo
-              .requestFullscreen();
-
+          if (!document.fullscreenElement) {
+            await screen.requestFullscreen();
           }
-
         }
-
         catch (error) {
-
           console.error(
-            "Erro fullscreen:",
+            "HUNT VIEWER: erro fullscreen:",
             error
           );
-
         }
-
       }
     );
 
+    exitFullscreen.addEventListener(
+      "click",
+      async event => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        try {
+          if (document.fullscreenElement) {
+            await document.exitFullscreen();
+          }
+        }
+        catch (error) {
+          console.error(
+            "HUNT VIEWER: erro ao sair da tela cheia:",
+            error
+          );
+        }
+      }
+    );
+
+    /*
+       O botão só aparece quando o mouse/pointer
+       chega perto do centro inferior da tela.
+    */
+    screen.addEventListener(
+      "pointermove",
+      event => {
+        if (document.fullscreenElement !== screen) {
+          hideExitButton();
+          return;
+        }
+
+        const nearBottom =
+          event.clientY >= window.innerHeight - 150;
+
+        const nearCenter =
+          Math.abs(
+            event.clientX - window.innerWidth / 2
+          ) <= 220;
+
+        if (nearBottom && nearCenter) {
+          showExitButtonTemporarily();
+        }
+      }
+    );
+
+    /*
+       Também detecta movimento do mouse caso o
+       navegador não dispare pointermove como esperado.
+    */
+    screen.addEventListener(
+      "mousemove",
+      event => {
+        if (document.fullscreenElement !== screen) {
+          hideExitButton();
+          return;
+        }
+
+        const nearBottom =
+          event.clientY >= window.innerHeight - 150;
+
+        const nearCenter =
+          Math.abs(
+            event.clientX - window.innerWidth / 2
+          ) <= 220;
+
+        if (nearBottom && nearCenter) {
+          showExitButtonTemporarily();
+        }
+      }
+    );
+
+    document.addEventListener(
+      "fullscreenchange",
+      () => {
+        if (document.fullscreenElement === screen) {
+          hideExitButton();
+        }
+        else {
+          hideExitButton();
+        }
+      }
+    );
 
     console.log(
       "HUNT VIEWER: sistema pronto"
