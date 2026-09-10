@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <title>HUNT SCREEN</title>
+  <title>HUNT SCREEN - FULLSCREEN V4</title>
 
   <style>
     * {
@@ -147,47 +147,49 @@
       width: 100%;
       height: 100%;
       object-fit: contain;
+      background: #000;
     }
 
+    /* Botão de SAIR da tela cheia.
+       Ele fica invisível fora da tela cheia. */
     .exit-fullscreen {
       position: fixed;
       left: 50%;
       bottom: 24px;
-      transform: translateX(-50%) translateY(14px);
-      width: 38px;
-      height: 28px;
+      transform: translate(-50%, 10px);
+      width: 44px;
+      height: 32px;
       padding: 0;
       border: 1px solid #333;
-      border-radius: 5px;
+      border-radius: 6px;
       background: rgba(0, 0, 0, .88);
       color: #fff;
-      font-size: 13px;
-      line-height: 26px;
-      text-align: center;
+      font-size: 15px;
+      line-height: 30px;
       cursor: pointer;
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
       z-index: 2147483647;
-      transition: opacity .15s ease, transform .15s ease,
-                  border-color .15s ease, color .15s ease;
+      transition: opacity .15s ease, transform .15s ease, border-color .15s ease, color .15s ease;
     }
 
+    /* Só pode aparecer quando .screen é o elemento fullscreen. */
     .screen:fullscreen .exit-fullscreen {
-      display: block;
+      visibility: visible;
     }
 
     .exit-fullscreen.show {
       opacity: 1;
-      visibility: visible;
       pointer-events: auto;
-      transform: translateX(-50%) translateY(0);
+      transform: translate(-50%, 0);
     }
 
     .exit-fullscreen:hover {
       border-color: #ff8c00;
       color: #ff8c00;
     }
+
   </style>
 
   <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
@@ -224,7 +226,6 @@
     id="remoteVideo"
     autoplay
     playsinline
-
     class="hidden">
   </video>
 
@@ -253,7 +254,7 @@
 
   <script>
 
-    console.log("HUNT VIEWER: carregado");
+    console.log("HUNT VIEWER: carregado - FULLSCREEN V4");
 
 
     /* =========================
@@ -753,7 +754,7 @@
       exitFullscreen.classList.remove("show");
     }
 
-    function showExitButtonTemporarily() {
+    function showExitButton() {
       if (document.fullscreenElement !== screen) {
         hideExitButton();
         return;
@@ -762,23 +763,31 @@
       exitFullscreen.classList.add("show");
 
       clearTimeout(exitButtonTimer);
-
       exitButtonTimer = setTimeout(() => {
         exitFullscreen.classList.remove("show");
-      }, 2200);
+      }, 2500);
     }
 
     fullscreen.addEventListener(
       "click",
       async event => {
+        event.preventDefault();
         event.stopPropagation();
 
         try {
-          if (!document.fullscreenElement) {
-            await screen.requestFullscreen();
+          if (document.fullscreenElement === screen) {
+            return;
           }
-        }
-        catch (error) {
+
+          /* A tela cheia é SEMPRE do .screen.
+             Nunca é do <video>. */
+          await screen.requestFullscreen();
+
+          /* Mostra o botão imediatamente ao entrar.
+             Depois ele desaparece sozinho. */
+          showExitButton();
+
+        } catch (error) {
           console.error(
             "HUNT VIEWER: erro fullscreen:",
             error
@@ -797,47 +806,34 @@
           if (document.fullscreenElement) {
             await document.exitFullscreen();
           }
-        }
-        catch (error) {
+        } catch (error) {
           console.error(
             "HUNT VIEWER: erro ao sair da tela cheia:",
             error
           );
         }
+
+        hideExitButton();
       }
     );
 
-    /*
-       O botão só aparece quando o mouse/pointer
-       chega perto do centro inferior da tela.
-    */
-    screen.addEventListener(
-      "pointermove",
-      event => {
-        if (document.fullscreenElement !== screen) {
+    /* ESC do teclado funciona pelo Fullscreen API.
+       Quando o navegador sair da tela cheia, limpamos
+       o botão e voltamos ao modo normal. */
+    document.addEventListener(
+      "fullscreenchange",
+      () => {
+        if (document.fullscreenElement === screen) {
+          showExitButton();
+        } else {
           hideExitButton();
-          return;
-        }
-
-        const nearBottom =
-          event.clientY >= window.innerHeight - 150;
-
-        const nearCenter =
-          Math.abs(
-            event.clientX - window.innerWidth / 2
-          ) <= 220;
-
-        if (nearBottom && nearCenter) {
-          showExitButtonTemporarily();
         }
       }
     );
 
-    /*
-       Também detecta movimento do mouse caso o
-       navegador não dispare pointermove como esperado.
-    */
-    screen.addEventListener(
+    /* O botão reaparece quando o mouse chega perto
+       do centro inferior da tela. */
+    document.addEventListener(
       "mousemove",
       event => {
         if (document.fullscreenElement !== screen) {
@@ -846,7 +842,7 @@
         }
 
         const nearBottom =
-          event.clientY >= window.innerHeight - 150;
+          event.clientY >= window.innerHeight - 160;
 
         const nearCenter =
           Math.abs(
@@ -854,19 +850,30 @@
           ) <= 220;
 
         if (nearBottom && nearCenter) {
-          showExitButtonTemporarily();
+          showExitButton();
         }
       }
     );
 
+    /* Também funciona com mouse/touch/pen. */
     document.addEventListener(
-      "fullscreenchange",
-      () => {
-        if (document.fullscreenElement === screen) {
+      "pointermove",
+      event => {
+        if (document.fullscreenElement !== screen) {
           hideExitButton();
+          return;
         }
-        else {
-          hideExitButton();
+
+        const nearBottom =
+          event.clientY >= window.innerHeight - 160;
+
+        const nearCenter =
+          Math.abs(
+            event.clientX - window.innerWidth / 2
+          ) <= 220;
+
+        if (nearBottom && nearCenter) {
+          showExitButton();
         }
       }
     );
