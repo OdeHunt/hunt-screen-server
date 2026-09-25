@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <title>HUNT SCREEN - FULLSCREEN V4</title>
+  <title>HUNT SCREEN - DOIS BOTOES FULLSCREEN</title>
 
   <style>
     * {
@@ -117,15 +117,22 @@
 
     .fullscreen {
       position: absolute;
-      right: 15px;
-      bottom: 15px;
-      padding: 9px 13px;
-      border: 1px solid #333;
-      border-radius: 6px;
-      background: rgba(0, 0, 0, .75);
+      top: 10px;
+      right: 10px;
+      bottom: auto;
+      width: 34px;
+      height: 30px;
+      padding: 0;
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 5px;
+      background: rgba(0,0,0,.75);
       color: #fff;
       cursor: pointer;
+      font-size: 16px;
+      line-height: 28px;
+      text-align: center;
       font-weight: bold;
+      z-index: 20;
     }
 
     .fullscreen:hover {
@@ -150,44 +157,21 @@
       background: #000;
     }
 
-    /* Botão de SAIR da tela cheia.
-       Ele fica invisível fora da tela cheia. */
-    .exit-fullscreen {
-      position: fixed;
-      left: 50%;
-      bottom: 24px;
-      transform: translate(-50%, 10px);
-      width: 44px;
-      height: 32px;
-      padding: 0;
-      border: 1px solid #333;
-      border-radius: 6px;
-      background: rgba(0, 0, 0, .88);
-      color: #fff;
-      font-size: 15px;
-      line-height: 30px;
+    .fullscreen-main {
+      margin-top: 12px;
+      padding: 10px 18px;
+      border: 0;
+      border-radius: 7px;
+      background: #ffcc00;
+      color: #000;
       cursor: pointer;
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
-      z-index: 2147483647;
-      transition: opacity .15s ease, transform .15s ease, border-color .15s ease, color .15s ease;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 1px;
     }
 
-    /* Só pode aparecer quando .screen é o elemento fullscreen. */
-    .screen:fullscreen .exit-fullscreen {
-      visibility: visible;
-    }
-
-    .exit-fullscreen.show {
-      opacity: 1;
-      pointer-events: auto;
-      transform: translate(-50%, 0);
-    }
-
-    .exit-fullscreen:hover {
-      border-color: #ff8c00;
-      color: #ff8c00;
+    .fullscreen-main:hover {
+      background: #ffd633;
     }
 
   </style>
@@ -236,15 +220,11 @@
     ⛶
   </button>
 
-  <button
-    id="exitFullscreen"
-    class="exit-fullscreen"
-    type="button"
-    aria-label="Sair da tela cheia">
-    ✕
-  </button>
-
 </section>
+
+<button id="fullscreenMain" class="fullscreen-main hidden" type="button">
+  ⛶ TELA CHEIA
+</button>
 
 <div id="status" class="status">
   CONECTANDO...
@@ -254,7 +234,7 @@
 
   <script>
 
-    console.log("HUNT VIEWER: carregado - FULLSCREEN V4");
+    console.log("HUNT VIEWER: carregado - DOIS BOTOES FULLSCREEN");
 
 
     /* =========================
@@ -283,6 +263,9 @@
 
     const fullscreen =
       document.getElementById("fullscreen");
+
+    const fullscreenMain =
+      document.getElementById("fullscreenMain");
 
 
     /* =========================
@@ -719,6 +702,10 @@
           "hidden"
         );
 
+        fullscreenMain.classList.add(
+          "hidden"
+        );
+
 
         waiting.classList.remove(
           "hidden"
@@ -739,144 +726,47 @@
 
     /* =========================
        TELA CHEIA
+       Dois botões fazem a mesma coisa:
+       - botão pequeno no canto do player
+       - botão amarelo abaixo do player
     ========================= */
 
     const screen =
       document.querySelector(".screen");
 
-    const exitFullscreen =
-      document.getElementById("exitFullscreen");
-
-    let exitButtonTimer = null;
-
-    function hideExitButton() {
-      clearTimeout(exitButtonTimer);
-      exitFullscreen.classList.remove("show");
-    }
-
-    function showExitButton() {
-      if (document.fullscreenElement !== screen) {
-        hideExitButton();
-        return;
+    async function enterFullscreen(event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
       }
 
-      exitFullscreen.classList.add("show");
+      try {
+        if (document.fullscreenElement === screen) {
+          return;
+        }
 
-      clearTimeout(exitButtonTimer);
-      exitButtonTimer = setTimeout(() => {
-        exitFullscreen.classList.remove("show");
-      }, 2500);
+        await screen.requestFullscreen();
+
+      } catch (error) {
+        console.error(
+          "HUNT VIEWER: erro fullscreen:",
+          error
+        );
+      }
     }
 
     fullscreen.addEventListener(
       "click",
-      async event => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        try {
-          if (document.fullscreenElement === screen) {
-            return;
-          }
-
-          /* A tela cheia é SEMPRE do .screen.
-             Nunca é do <video>. */
-          await screen.requestFullscreen();
-
-          /* Mostra o botão imediatamente ao entrar.
-             Depois ele desaparece sozinho. */
-          showExitButton();
-
-        } catch (error) {
-          console.error(
-            "HUNT VIEWER: erro fullscreen:",
-            error
-          );
-        }
-      }
+      enterFullscreen
     );
 
-    exitFullscreen.addEventListener(
+    fullscreenMain.addEventListener(
       "click",
-      async event => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        try {
-          if (document.fullscreenElement) {
-            await document.exitFullscreen();
-          }
-        } catch (error) {
-          console.error(
-            "HUNT VIEWER: erro ao sair da tela cheia:",
-            error
-          );
-        }
-
-        hideExitButton();
-      }
+      enterFullscreen
     );
 
-    /* ESC do teclado funciona pelo Fullscreen API.
-       Quando o navegador sair da tela cheia, limpamos
-       o botão e voltamos ao modo normal. */
-    document.addEventListener(
-      "fullscreenchange",
-      () => {
-        if (document.fullscreenElement === screen) {
-          showExitButton();
-        } else {
-          hideExitButton();
-        }
-      }
-    );
-
-    /* O botão reaparece quando o mouse chega perto
-       do centro inferior da tela. */
-    document.addEventListener(
-      "mousemove",
-      event => {
-        if (document.fullscreenElement !== screen) {
-          hideExitButton();
-          return;
-        }
-
-        const nearBottom =
-          event.clientY >= window.innerHeight - 160;
-
-        const nearCenter =
-          Math.abs(
-            event.clientX - window.innerWidth / 2
-          ) <= 220;
-
-        if (nearBottom && nearCenter) {
-          showExitButton();
-        }
-      }
-    );
-
-    /* Também funciona com mouse/touch/pen. */
-    document.addEventListener(
-      "pointermove",
-      event => {
-        if (document.fullscreenElement !== screen) {
-          hideExitButton();
-          return;
-        }
-
-        const nearBottom =
-          event.clientY >= window.innerHeight - 160;
-
-        const nearCenter =
-          Math.abs(
-            event.clientX - window.innerWidth / 2
-          ) <= 220;
-
-        if (nearBottom && nearCenter) {
-          showExitButton();
-        }
-      }
-    );
+    /* ESC continua funcionando normalmente
+       pelo Fullscreen API do navegador. */
 
     console.log(
       "HUNT VIEWER: sistema pronto"
